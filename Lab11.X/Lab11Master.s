@@ -2,7 +2,7 @@
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
-;I2C Communication
+;I2C Communication (Master)
 ;Git URL: https://github.com/horsjaco117/Assembly_Code
       
 ;Device Setup
@@ -98,11 +98,11 @@ Setup:
 ;Main Program Loop (Loops forever)
 MAINLOOP:
 HIGH0: ;Nested loop for delay of 5 on display
-    MOVLW 0X59 ;89 in decimal
+    MOVLW 0X10 ;89 in decimal
     MOVWF COUNT3 ;References variable
-FINALLOOP0: MOVLW 0X5C ;92 in decimal
+FINALLOOP0: MOVLW 0X10 ;92 in decimal
     MOVWF COUNT2 ;Reference variable
-OUTERLOOP0: MOVLW 0X13 ;19 in decimal
+OUTERLOOP0: MOVLW 0X10 ;19 in decimal
     MOVWF COUNT1 ;Reference variable
 INNERLOOP0: DECFSZ COUNT1 ;Decrements the # in count1 until 0 reached
     GOTO INNERLOOP0 ;Goes through inner loop until 0 reached
@@ -112,7 +112,7 @@ INNERLOOP0: DECFSZ COUNT1 ;Decrements the # in count1 until 0 reached
     GOTO FINALLOOP0 ;Goes through Final loop until 0 reached
    
     Delay1: ;Simple loop for fine tuning delay time
-MOVLW 0X2F ;47 in decimal
+MOVLW 0X10 ;47 in decimal
 MOVWF COUNT7 ;Moves 47 into the count7 variable
     LOOPA: ;Simple loop tied to 5 of display
 DECFSZ COUNT7 ;Decrement until count7 equals zero
@@ -122,7 +122,7 @@ NOP
     GOTO DISPLAYHIGH ;Once the delay is passed a 5 displays
    
 LOW0:
-    MOVLW 0X59 ;91 in decimal
+    MOVLW 0X10 ;91 in decimal
     MOVWF COUNT6 ;Reference variable
 FINALLOOP1: MOVLW 0X5C ;96 in decimal
     MOVWF COUNT5 ;Reference variable
@@ -133,10 +133,10 @@ INNERLOOP1: DECFSZ COUNT4 ;Decrements the # in count1 until 0 reached
     DECFSZ COUNT5 ;Decrements the # in count1 until 0 reached
     GOTO OUTERLOOP1 ;Goes through the loop until 0 is reached
     DECFSZ COUNT6 ;Decrements the # in count1 until 0 reached
-    GOTO FINALLOOP1 ;Goes through the loop until 0 reached
+    GOTO FINALLOOP1 ;Goes through the loop until 0 is reached
    
  Delay2: ;Simple loop for fine tuning delay time
-    MOVLW 0X2F ;47 in decimal
+    MOVLW 0X10 ;47 in decimal
     MOVWF COUNT7 ;Moves 47 into the count7 variable
 LOOPB: ;Loop tied to display of low
     DECFSZ COUNT7 ;Decrement until count7 equals 0
@@ -146,53 +146,107 @@ LOOPB: ;Loop tied to display of low
     GOTO DISPLAYLOW ;Once the delay is passed a 0 is displayed
    
 DISPLAYHIGH:
-    MOVLW 0X05 ;Hex code for high into register
-    MOVWF PORTC ;Registers hex code out of port c
+   ; MOVLW 0X05 ;Hex code for high into register
+  ;  MOVWF PORTC ;Registers hex code out of port c
     GOTO LOW0 ;Goes to the low0 loop
    
 DISPLAYLOW:
-    MOVLW 0X00 ;Stores 0 in register
-    MOVWF PORTC;Data from register goes into PortC
-    CALL I2C_SEND  ; Correction: Moved CALL here to execute I2C send after each low display (inside the loop)
+   ; MOVLW 0X00 ;Stores 0 in register
+    ;MOVWF PORTC;Data from register goes into PortC
+    CALL I2C_SEND  ; Execute I2C send after each low display (inside the loop)
     GOTO HIGH0 ;Goes to the high portion of the code (keeps blinking infinite)
    
-GOTO MAINLOOP  ; Correction: This is now reachable if you ever exit the inner loop, but as-is it's redundant/infinite
+GOTO MAINLOOP  ; Redundant as loop is infinite, but harmless
    
+; Sends I2C
+; Sends I2C (Multi-Byte Write Example)
 I2C_SEND:
-    ; Optional: Check bus idle before start (BTFSC SSPSTAT,2 ; if R/W=1 busy; GOTO $-1)
-   BSF STATUS, 5
-   BCF STATUS, 6 ;BANK1
-    BSF SSPCON2, 0 ; SEN=1 (start condition)
-    BTFSC SSPCON2, 0 ; Wait for start complete (hardware clears SEN)
-    GOTO $-1
-    MOVLW 0xA0 ; Slave address 0x50 <<1 + write bit (0)
-    MOVWF SSPBUF ; Write to buffer
-    BCF STATUS, 5 ;BANK0
+    ; Check bus idle (in Bank 1)
+    BSF STATUS, 5      ; To Bank 1
     BCF STATUS, 6
-    BTFSS PIR1, 3 ; Correction: Wait for transmit complete (SSPIF=1)
+    BTFSC SSPSTAT, 2   ; If R/W=1 (busy/receive mode), wait
     GOTO $-1
-    BCF PIR1, 3 ; Clear SSPIF
-    BTFSC SSPCON2, 6 ; Check ACK (ACKSTAT=0 good, 1=NACK/error)
-    GOTO _ERROR ; No ACK? Handle error
-    MOVLW 0xAA ; Data byte
-    MOVWF SSPBUF ; Write data
-    BTFSS PIR1, 3 ; Correction: Wait for transmit complete (SSPIF=1)
+    BSF SSPCON2, 0     ; SEN=1 (start condition)
+    BTFSC SSPCON2, 0   ; Wait for start complete (SEN=0)
     GOTO $-1
-    BCF PIR1, 3 ; Clear SSPIF
-    BTFSC SSPCON2, 6 ; Check ACK
-    GOTO _ERROR
-    BSF STATUS, 5 ;BANK 1
-   BCF STATUS, 6
-    BSF SSPCON2, 2 ; PEN=1 (stop condition)
-    BTFSC SSPCON2, 2 ; Wait for stop complete
-    GOTO $-1
-    BCF STATUS, 5
+    
+    ; Send Slave Address + Write Bit (0xA0)
+    BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
+    MOVLW 0xA0         ; Slave addr 0x50 <<1 | W (0)
+    MOVWF SSPBUF       ; Load into buffer (starts transmit)
+    BTFSS PIR1, 3      ; Wait for transmit complete (SSPIF=1)
+    GOTO $-1
+    BCF PIR1, 3        ; Clear SSPIF
+    
+    ; Check ACK for Address
+    BSF STATUS, 5      ; To Bank 1
+    BCF STATUS, 6
+    BTFSC SSPCON2, 6   ; ACKSTAT=0? (good ACK)
+    GOTO ERROR1        ; Jump to error if NACK
+    
+    ; Send First Data Byte (0x04)
+    BCF STATUS, 5      ; To Bank 0
+    BCF STATUS, 6
+    MOVLW 0x04         ; Your original data byte
+    MOVWF SSPBUF       ; Load (starts transmit)
+    BTFSS PIR1, 3      ; Wait for complete
+    GOTO $-1
+    BCF PIR1, 3        ; Clear SSPIF
+    
+    ; Check ACK for First Data
+    BSF STATUS, 5      ; To Bank 1
+    BCF STATUS, 6
+    BTFSC SSPCON2, 6   ; ACKSTAT=0?
+    GOTO ERROR1
+    
+    ; Send Second Data Byte (Extra: 0x05) - Repeat Block for More Bytes
+    BCF STATUS, 5      ; To Bank 0
+    BCF STATUS, 6
+    MOVLW 0x05         ; Example extra data (change as needed)
+    MOVWF SSPBUF
+    BTFSS PIR1, 3
+    GOTO $-1
+    BCF PIR1, 3
+    
+    ; Check ACK for Second Data
+    BSF STATUS, 5      ; To Bank 1
+    BCF STATUS, 6
+    BTFSC SSPCON2, 6
+    GOTO ERROR1
+    
+    ; Send Third Data Byte (Extra: 0x06) - Add More Here if Needed
+    BCF STATUS, 5      ; To Bank 0
+    BCF STATUS, 6
+    MOVLW 0x06         ; Another example (expand pattern)
+    MOVWF SSPBUF
+    BTFSS PIR1, 3
+    GOTO $-1
+    BCF PIR1, 3
+    
+    ; Check ACK for Third Data
+    BSF STATUS, 5      ; To Bank 1
+    BCF STATUS, 6
+    BTFSC SSPCON2, 6
+    GOTO ERROR1
+    
+    ; Stop Condition (Ends Transaction)
+    BSF SSPCON2, 2     ; PEN=1
+    BTFSC SSPCON2, 2   ; Wait for stop complete (PEN=0)
+    GOTO $-1
+    
+    BCF STATUS, 5      ; Back to Bank 0 (good practice)
+    BCF STATUS, 6
+    RETURN
+
+ERROR1:
+    ; Simple MSSP Reset (Your Original)
+    BCF STATUS, 5      ; Ensure Bank 0
+    BCF STATUS, 6
+    BCF SSPCON, 5      ; SSPEN=0 (disable)
+    BSF SSPCON, 5      ; SSPEN=1 (re-enable)
     RETURN
    
-_ERROR:  ; Correction: Standardized label
-    ; Add error handling (e.g., reset I2C: BCF SSPCON,5 then BSF SSPCON,5; or set an error LED on PORTC)
-    RETURN
 INTERRUPT:
    
    

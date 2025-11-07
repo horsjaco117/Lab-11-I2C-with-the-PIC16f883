@@ -1,28 +1,27 @@
-;LAB 11
+;LAB 11 - Slave
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
-;I2C Communication
+;I2C Communication (Slave)
 ;Git URL: https://github.com/horsjaco117/Assembly_Code
       
 ;Device Setup
 ;--------------------------------------------------------------------------
-;Configuration
+;Configuration (unchanged)
     ; CONFIG1
-  CONFIG FOSC = XT ; Oscillator Selection bits (XT oscillator: Crystal/resonator on RA6/OSC2/CLKOUT and RA7/OSC1/CLKIN)
-  CONFIG WDTE = OFF ; Watchdog Timer Enable bit (WDT disabled and can be enabled by SWDTEN bit of the WDTCON register)
-  CONFIG PWRTE = OFF ; Power-up Timer Enable bit (PWRT disabled)
-  CONFIG MCLRE = ON ; RE3/MCLR pin function select bit (RE3/MCLR pin function is MCLR)
-  CONFIG CP = OFF ; Code Protection bit (Program memory code protection is disabled)
-  CONFIG CPD = OFF ; Data Code Protection bit (Data memory code protection is disabled)
-  CONFIG BOREN = OFF ; Brown Out Reset Selection bits (BOR disabled)
-  CONFIG IESO = OFF ; Internal External Switchover bit (Internal/External Switchover mode is disabled)
-  CONFIG FCMEN = OFF ; Fail-Safe Clock Monitor Enabled bit (Fail-Safe Clock Monitor is disabled)
-  CONFIG LVP = OFF ; Low Voltage Programming Enable bit (RB3 pin has digital I/O, HV on MCLR must be used for programming)
+  CONFIG FOSC = XT
+  CONFIG WDTE = OFF
+  CONFIG PWRTE = OFF
+  CONFIG MCLRE = ON
+  CONFIG CP = OFF
+  CONFIG CPD = OFF
+  CONFIG BOREN = OFF
+  CONFIG IESO = OFF
+  CONFIG FCMEN = OFF
+  CONFIG LVP = OFF
 ; CONFIG2
-  CONFIG BOR4V = BOR40V ; Brown-out Reset Selection bit (Brown-out Reset set to 4.0V)
-  CONFIG WRT = OFF ; Flash Program Memory Self Write Enable bits (Write protection off)
-// config statements should precede project file includes.
+  CONFIG BOR4V = BOR40V
+  CONFIG WRT = OFF
 ;Include Statements
 #include <xc.inc>
  
@@ -30,7 +29,8 @@
 ;--------------------------------------------------------------------------
    
 ;Register/Variable Setup
-  SOMEVALUE EQU 0x5f ;assign a value to a variable
+  SOMEVALUE EQU 0x5f
+  RECEIVED_DATA EQU 0x27 ; Variable to store received I2C data
  
  
 ;---------------------------------------------------------------------
@@ -41,163 +41,164 @@ PSECT resetVect, class=CODE, delta=2
 PSECT isrVect, class=CODE, delta=2
     GOTO INTERRUPT
 Start:
- ;No starting code for this section
 Setup:
-; Bank 3
-    BSF STATUS, 5 ; RP0=1
-    BSF STATUS, 6 ; RP1=1, now Bank 3
-    MOVLW 0x0F ; Set lower 4 bits of PORTB as inputs (your original)
-    MOVWF TRISB ; TRISB in bank 3 mirror (0x186)
-    CLRF ANSELH ; Digital I/O for higher pins
-    CLRF INTCON ; Disable interrupts (your original)
-    CLRF OPTION_REG ; Your original
-; Bank 2
-    BCF STATUS, 5 ; RP0=0, now Bank 2 (RP1=1)
-    CLRF CM2CON1 ; Your original (assuming comparator disable)
-; Bank 1
-    BSF STATUS, 5 ; RP0=1, now Bank 1 (RP1=0)
-    BCF STATUS, 6 ; RP1=0
-    MOVLW 0xFF ; Enable weak pull-ups on PORTB
-    MOVWF WPUB
-    CLRF IOCB ; Disable interrupt-on-change for PORTB
-    CLRF PSTRCON ; Disable PWM steering
-    MOVLW 0x18 ; Set TRISC: bits 3 (SCL) and 4 (SDA) to 1 for I2C, others 0 (outputs)
-    MOVWF TRISC ; Critical for I2C pin control
-    MOVLW 0x00
-    MOVWF PIE1 ; SSPIE=0 (no SSP interrupt)
-    MOVLW 0x00
-    MOVWF PIE2 ; BCLIE=0 (no bus collision interrupt)
-    CLRF SSPCON2 ; Clear all action bits (SEN, RSEN, PEN, etc.)
-    CLRF SSPSTAT ; SMP=0 (standard slew), CKE=0 (standard levels)
-    MOVLW 0x09 ; SSPADD for 100 kHz @ 4 MHz FOSC: (FOSC/(4*100kHz))-1 = 9
-    MOVWF SSPADD ; Adjust if FOSC != 4 MHz (e.g., 8 MHz: 0x13)
-; Bank 0
-    BCF STATUS, 5 ; RP0=0
-    BCF STATUS, 6 ; RP1=0, now Bank 0
-    CLRF CCP1CON ; Disable PWM1
-    CLRF PORTC ; Clear PORTC
-    CLRF CCP2CON ; Disable PWM2
-    CLRF PORTB ; Clear PORTB
-    CLRF RCSTA ; Disable USART
-    CLRF T1CON ; Disable Timer1
-    CLRF INTCON ; GIE=0, PEIE=0
-    CLRF PIR1 ; Clear SSPIF
-    CLRF PIR2 ; Clear BCLIF
-    MOVLW 0x28 ; SSPCON: SSPEN=1 (enable last), CKP=0 (don't-care), SSPM=1000 (I2C master)
-    MOVWF SSPCON
-   
-;Register/Variable setups
-     COUNT1 EQU 0x20 ;For specific counts in below loops
-     COUNT2 EQU 0x21 ;For specific counts in below loops
-     COUNT3 EQU 0x22 ;For specific counts in below loops
-     COUNT4 EQU 0X23 ;For specific counts in below loops
-     COUNT5 EQU 0X24 ;For specific counts in below loops
-     COUNT6 EQU 0X25 ;For specific counts in below loops
-     COUNT7 EQU 0X26 ;For specific counts in below loops
-    
-;Main Program Loop (Loops forever)
-MAINLOOP:
-HIGH0: ;Nested loop for delay of 5 on display
-    MOVLW 0X10 ;89 in decimal
-    MOVWF COUNT3 ;References variable
-FINALLOOP0: MOVLW 0X10 ;92 in decimal
-    MOVWF COUNT2 ;Reference variable
-OUTERLOOP0: MOVLW 0X10 ;19 in decimal
-    MOVWF COUNT1 ;Reference variable
-INNERLOOP0: DECFSZ COUNT1 ;Decrements the # in count1 until 0 reached
-    GOTO INNERLOOP0 ;Goes through inner loop until 0 reached
-    DECFSZ COUNT2 ;Decrements the # in count1 until 0 reached
-    GOTO OUTERLOOP0 ;Goes through outer loop until 0 reached
-    DECFSZ COUNT3 ;Decrements the # in count1 until 0 reached
-    GOTO FINALLOOP0 ;Goes through Final loop until 0 reached
-   
-    Delay1: ;Simple loop for fine tuning delay time
-MOVLW 0X10 ;47 in decimal
-MOVWF COUNT7 ;Moves 47 into the count7 variable
-    LOOPA: ;Simple loop tied to 5 of display
-DECFSZ COUNT7 ;Decrement until count7 equals zero
-GOTO LOOPA ;Goes to loop A until count is zero
-NOP ;Fine tune 1 microsecond delay
-NOP
-    GOTO DISPLAYHIGH ;Once the delay is passed a 5 displays
-   
-LOW0:
-    MOVLW 0X10 ;91 in decimal
-    MOVWF COUNT6 ;Reference variable
-FINALLOOP1: MOVLW 0X5C ;96 in decimal
-    MOVWF COUNT5 ;Reference variable
-OUTERLOOP1: MOVLW 0X13 ; 19 in decimal
-    MOVWF COUNT4 ;Reference variable
-INNERLOOP1: DECFSZ COUNT4 ;Decrements the # in count1 until 0 reached
-    GOTO INNERLOOP1 ;Goes through the loop until 0 is reached
-    DECFSZ COUNT5 ;Decrements the # in count1 until 0 reached
-    GOTO OUTERLOOP1 ;Goes through the loop until 0 is reached
-    DECFSZ COUNT6 ;Decrements the # in count1 until 0 reached
-    GOTO FINALLOOP1 ;Goes through the loop until 0 reached
-   
- Delay2: ;Simple loop for fine tuning delay time
-    MOVLW 0X10 ;47 in decimal
-    MOVWF COUNT7 ;Moves 47 into the count7 variable
-LOOPB: ;Loop tied to display of low
-    DECFSZ COUNT7 ;Decrement until count7 equals 0
-    GOTO LOOPB ;goes to loop A until count is zero
-    NOP ;Fine tune 1 microsecond delay
-    NOP
-    GOTO DISPLAYLOW ;Once the delay is passed a 0 is displayed
-   
-DISPLAYHIGH:
-    MOVLW 0X05 ;Hex code for high into register
-    MOVWF PORTC ;Registers hex code out of port c
-    GOTO LOW0 ;Goes to the low0 loop
-   
-DISPLAYLOW:
-    MOVLW 0X00 ;Stores 0 in register
-    MOVWF PORTC;Data from register goes into PortC
-    CALL I2C_SEND  ; Correction: Moved CALL here to execute I2C send after each low display (inside the loop)
-    GOTO HIGH0 ;Goes to the high portion of the code (keeps blinking infinite)
-   
-GOTO MAINLOOP  ; Correction: This is now reachable if you ever exit the inner loop, but as-is it's redundant/infinite
-   
-I2C_SEND:
-    ; Optional: Check bus idle before start (BTFSC SSPSTAT,2 ; if R/W=1 busy; GOTO $-1)
-   BSF STATUS, 5
-   BCF STATUS, 6 ;BANK1
-    BSF SSPCON2, 0 ; SEN=1 (start condition)
-    BTFSC SSPCON2, 0 ; Wait for start complete (hardware clears SEN)
-    GOTO $-1
-    MOVLW 0xA0 ; Slave address 0x50 <<1 + write bit (0)
-    MOVWF SSPBUF ; Write to buffer
-    BCF STATUS, 5 ;BANK0
+; Bank 3 (unchanged)
+    BSF STATUS, 5
+    BSF STATUS, 6
+    MOVLW 0x0F
+    MOVWF TRISB
+    CLRF ANSELH
+    CLRF INTCON
+    CLRF OPTION_REG
+; Bank 2 (unchanged)
+    BCF STATUS, 5
+    CLRF CM2CON1
+; Bank 1 (unchanged except order for stability)
+    BSF STATUS, 5
     BCF STATUS, 6
-    BTFSS PIR1, 3 ; Correction: Wait for transmit complete (SSPIF=1)
-    GOTO $-1
-    BCF PIR1, 3 ; Clear SSPIF
-    BTFSC SSPCON2, 6 ; Check ACK (ACKSTAT=0 good, 1=NACK/error)
-    GOTO _ERROR ; No ACK? Handle error
-    MOVLW 0xAA ; Data byte
-    MOVWF SSPBUF ; Write data
-    BTFSS PIR1, 3 ; Correction: Wait for transmit complete (SSPIF=1)
-    GOTO $-1
-    BCF PIR1, 3 ; Clear SSPIF
-    BTFSC SSPCON2, 6 ; Check ACK
-    GOTO _ERROR
-    BSF STATUS, 5 ;BANK 1
-   BCF STATUS, 6
-    BSF SSPCON2, 2 ; PEN=1 (stop condition)
-    BTFSC SSPCON2, 2 ; Wait for stop complete
-    GOTO $-1
+    MOVLW 0xFF
+    MOVWF WPUB
+    CLRF IOCB
+    CLRF PSTRCON
+    MOVLW 0x18
+    MOVWF TRISC
+    MOVLW 0x08
+    MOVWF PIE1 ; SSPIE=1
+    MOVLW 0x08
+    MOVWF PIE2 ; BCLIE=1
+    CLRF SSPCON2
+    MOVLW 0x80
+    MOVWF SSPSTAT ; SMP=1, CKE=0
+    MOVLW 0xA0
+    MOVWF SSPADD ; Address 0x50 <<1
+; Bank 0
     BCF STATUS, 5
     BCF STATUS, 6
-    RETURN
+    CLRF CCP1CON
+    CLRF PORTC
+    CLRF CCP2CON
+    CLRF PORTB
+    CLRF RCSTA
+    CLRF T1CON
+    CLRF PIR1
+    CLRF PIR2
+    MOVLW 0xC0
+    MOVWF INTCON ; GIE=1, PEIE=1
+    CLRF RECEIVED_DATA ; Initialize
+    MOVLW 0x26 ; Fix: SSPM=0110 (slave), CKP=0 (no stretch), SSPEN=1 LAST
+    MOVWF SSPCON
+    ; Stabilization delay (~50 cycles)
+    MOVLW 0x14 ; ~20 loops for ~50 cycles
+    MOVWF 0x28 ; Temp GPR
+DELAY_STAB:
+    DECFSZ 0x28, F
+    GOTO DELAY_STAB
    
-_ERROR:  ; Correction: Standardized label
-    ; Add error handling (e.g., reset I2C: BCF SSPCON,5 then BSF SSPCON,5; or set an error LED on PORTC)
-    RETURN
+;Register/Variable setups (unchanged)
+     COUNT1 EQU 0x20
+     COUNT2 EQU 0x21
+     COUNT3 EQU 0x22
+     COUNT4 EQU 0X23
+     COUNT5 EQU 0X24
+     COUNT6 EQU 0X25
+     COUNT7 EQU 0X26
+    
+;Main Program Loop (unchanged)
+MAINLOOP:
+HIGH0:
+    MOVLW 0X59
+    MOVWF COUNT3
+FINALLOOP0: MOVLW 0X5C
+    MOVWF COUNT2
+OUTERLOOP0: MOVLW 0X13
+    MOVWF COUNT1
+INNERLOOP0: DECFSZ COUNT1
+    GOTO INNERLOOP0
+    DECFSZ COUNT2
+    GOTO OUTERLOOP0
+    DECFSZ COUNT3
+    GOTO FINALLOOP0
+   
+Delay1:
+MOVLW 0X2F
+MOVWF COUNT7
+LOOPA:
+DECFSZ COUNT7
+GOTO LOOPA
+NOP
+NOP
+    GOTO DISPLAYHIGH
+   
+LOW0:
+    MOVLW 0X59
+    MOVWF COUNT6
+FINALLOOP1: MOVLW 0X5C
+    MOVWF COUNT5
+OUTERLOOP1: MOVLW 0X13
+    MOVWF COUNT4
+INNERLOOP1: DECFSZ COUNT4
+    GOTO INNERLOOP1
+    DECFSZ COUNT5
+    GOTO OUTERLOOP1
+    DECFSZ COUNT6
+    GOTO FINALLOOP1
+   
+Delay2:
+    MOVLW 0X2F
+    MOVWF COUNT7
+LOOPB:
+    DECFSZ COUNT7
+    GOTO LOOPB
+    NOP
+    NOP
+    GOTO DISPLAYLOW
+   
+DISPLAYHIGH:
+    MOVLW 0X05
+    MOVWF PORTC
+    GOTO LOW0
+   
+DISPLAYLOW:
+    MOVF RECEIVED_DATA, W
+    MOVWF PORTC
+    GOTO HIGH0
+   
+GOTO MAINLOOP
+   
 INTERRUPT:
+    BSF PORTC, 0 ; Debug: Toggle RC0 on ISR entry (confirms interrupts fire)
+    NOP
+    BCF PORTC, 0
+    BTFSS PIR1, 3 ; SSPIF? (Bank 0)
+    GOTO CHECK_BCL
+    BCF PIR1, 3 ; Clear SSPIF
+    BSF STATUS, 5 ; Bank 1 for SSPSTAT/SSPOV/WCOL
+    BCF STATUS, 6
+    BTFSC SSPSTAT, 4 ; Fix: Check SSPOV=1? (receive overflow ? NACK cause)
+    CLRF SSPSTAT ; Clear SSPOV/WCOL (forces ACK on next)
+    BTFSC SSPSTAT, 7 ; Check WCOL=1? (write collision)
+    CLRF SSPSTAT ; Clear it
+    BTFSC SSPSTAT, 2 ; D/A=1? (data phase)
+    GOTO READ_DATA
+    BCF STATUS, 5 ; Back to Bank 0
+    BCF STATUS, 6
+    MOVF SSPBUF, W ; Read address to clear BF (enables data ACK)
+    GOTO INT_EXIT
    
+READ_DATA:
+    BCF STATUS, 5 ; Bank 0
+    BCF STATUS, 6
+    MOVF SSPBUF, W ; Read data ? clears BF ? auto-ACK
+    MOVWF RECEIVED_DATA
+    GOTO INT_EXIT
    
+CHECK_BCL:
+    BTFSS PIR2, 3 ; BCLIF?
+    GOTO INT_EXIT
+    BCF PIR2, 3
+    BCF SSPCON, 5 ; Reset MSSP on collision
+    BSF SSPCON, 5
    
+INT_EXIT:
     RETFIE
-END ;End of code. This is required
-
-
+END
