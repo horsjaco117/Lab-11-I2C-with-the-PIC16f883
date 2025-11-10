@@ -1,10 +1,10 @@
-;LAB 11
+;How would I get to send extra data after the acknowledge bit is recieved?;LAB 11
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
 ;I2C Communication (Master)
 ;Git URL: https://github.com/horsjaco117/Assembly_Code
-      
+     
 ;Device Setup
 ;--------------------------------------------------------------------------
 ;Configuration
@@ -25,14 +25,11 @@
 // config statements should precede project file includes.
 ;Include Statements
 #include <xc.inc>
- 
 ;Code Section
 ;--------------------------------------------------------------------------
-   
+  
 ;Register/Variable Setup
   SOMEVALUE EQU 0x5f ;assign a value to a variable
- 
- 
 ;---------------------------------------------------------------------
 ; Reset & Interrupt vectors
 ;---------------------------------------------------------------------
@@ -46,8 +43,7 @@ Setup:
 ; Bank 3
     BSF STATUS, 5 ; RP0=1
     BSF STATUS, 6 ; RP1=1, now Bank 3
-    MOVLW 0x0F ; Set lower 4 bits of PORTB as inputs (your original)
-    MOVWF TRISB ; TRISB in bank 3 mirror (0x186)
+   
     CLRF ANSELH ; Digital I/O for higher pins
     CLRF INTCON ; Disable interrupts (your original)
     CLRF OPTION_REG ; Your original
@@ -71,6 +67,8 @@ Setup:
     CLRF SSPSTAT ; SMP=0 (standard slew), CKE=0 (standard levels)
     MOVLW 0x09 ; SSPADD for 100 kHz @ 4 MHz FOSC: (FOSC/(4*100kHz))-1 = 9
     MOVWF SSPADD ; Adjust if FOSC != 4 MHz (e.g., 8 MHz: 0x13)
+     MOVLW 0x0F ; Set lower 4 bits of PORTB as inputs (your original)
+    MOVWF TRISB ; TRISB in bank 3 mirror (0x186)
 ; Bank 0
     BCF STATUS, 5 ; RP0=0
     BCF STATUS, 6 ; RP1=0, now Bank 0
@@ -85,7 +83,7 @@ Setup:
     CLRF PIR2 ; Clear BCLIF
     MOVLW 0x28 ; SSPCON: SSPEN=1 (enable last), CKP=0 (don't-care), SSPM=1000 (I2C master)
     MOVWF SSPCON
-   
+  
 ;Register/Variable setups
      COUNT1 EQU 0x20 ;For specific counts in below loops
      COUNT2 EQU 0x21 ;For specific counts in below loops
@@ -94,7 +92,7 @@ Setup:
      COUNT5 EQU 0X24 ;For specific counts in below loops
      COUNT6 EQU 0X25 ;For specific counts in below loops
      COUNT7 EQU 0X26 ;For specific counts in below loops
-    
+   
 ;Main Program Loop (Loops forever)
 MAINLOOP:
 HIGH0: ;Nested loop for delay of 5 on display
@@ -110,7 +108,7 @@ INNERLOOP0: DECFSZ COUNT1 ;Decrements the # in count1 until 0 reached
     GOTO OUTERLOOP0 ;Goes through outer loop until 0 reached
     DECFSZ COUNT3 ;Decrements the # in count1 until 0 reached
     GOTO FINALLOOP0 ;Goes through Final loop until 0 reached
-   
+  
     Delay1: ;Simple loop for fine tuning delay time
 MOVLW 0X10 ;47 in decimal
 MOVWF COUNT7 ;Moves 47 into the count7 variable
@@ -120,7 +118,7 @@ GOTO LOOPA ;Goes to loop A until count is zero
 NOP ;Fine tune 1 microsecond delay
 NOP
     GOTO DISPLAYHIGH ;Once the delay is passed a 5 displays
-   
+  
 LOW0:
     MOVLW 0X10 ;91 in decimal
     MOVWF COUNT6 ;Reference variable
@@ -134,7 +132,7 @@ INNERLOOP1: DECFSZ COUNT4 ;Decrements the # in count1 until 0 reached
     GOTO OUTERLOOP1 ;Goes through the loop until 0 is reached
     DECFSZ COUNT6 ;Decrements the # in count1 until 0 reached
     GOTO FINALLOOP1 ;Goes through the loop until 0 is reached
-   
+  
  Delay2: ;Simple loop for fine tuning delay time
     MOVLW 0X10 ;47 in decimal
     MOVWF COUNT7 ;Moves 47 into the count7 variable
@@ -144,20 +142,20 @@ LOOPB: ;Loop tied to display of low
     NOP ;Fine tune 1 microsecond delay
     NOP
     GOTO DISPLAYLOW ;Once the delay is passed a 0 is displayed
-   
+  
 DISPLAYHIGH:
    ; MOVLW 0X05 ;Hex code for high into register
-  ;  MOVWF PORTC ;Registers hex code out of port c
+  ; MOVWF PORTC ;Registers hex code out of port c
     GOTO LOW0 ;Goes to the low0 loop
-   
+  
 DISPLAYLOW:
    ; MOVLW 0X00 ;Stores 0 in register
     ;MOVWF PORTC;Data from register goes into PortC
-    CALL I2C_SEND  ; Execute I2C send after each low display (inside the loop)
+    CALL I2C_SEND ; Execute I2C send after each low display (inside the loop)
     GOTO HIGH0 ;Goes to the high portion of the code (keeps blinking infinite)
-   
-GOTO MAINLOOP  ; Redundant as loop is infinite, but harmless
-   
+  
+GOTO MAINLOOP ; Redundant as loop is infinite, but harmless
+  
 ; Sends I2C
 ; Sends I2C (Multi-Byte Write Example)
 I2C_SEND:
@@ -173,7 +171,7 @@ I2C_SEND:
     ; Send Slave Address + Write Bit (0xA0)
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0xA0         ; Slave addr 0x50 <<1 | W (0)
+    MOVLW 0x40        ; Slave addr 0x50 <<1 | W (0)
     MOVWF SSPBUF       ; Load into buffer (starts transmit)
     BTFSS PIR1, 3      ; Wait for transmit complete (SSPIF=1)
     GOTO $-1
@@ -188,7 +186,7 @@ I2C_SEND:
     ; Send First Data Byte (0x04)
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x04         ; Your original data byte
+    MOVLW 0x08         ; Your original data byte
     MOVWF SSPBUF       ; Load (starts transmit)
     BTFSS PIR1, 3      ; Wait for complete
     GOTO $-1
@@ -203,7 +201,7 @@ I2C_SEND:
     ; Send Second Data Byte (Extra: 0x05) - Repeat Block for More Bytes
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x05         ; Example extra data (change as needed)
+    MOVLW 0x04        ; Example extra data (change as needed)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
@@ -218,7 +216,7 @@ I2C_SEND:
     ; Send Third Data Byte (Extra: 0x06) - Add More Here if Needed
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x06         ; Another example (expand pattern)
+    MOVLW 0x06        ; Another example (expand pattern)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
@@ -246,10 +244,11 @@ ERROR1:
     BCF SSPCON, 5      ; SSPEN=0 (disable)
     BSF SSPCON, 5      ; SSPEN=1 (re-enable)
     RETURN
-   
+
+  
 INTERRUPT:
-   
-   
-   
+  
+  
+  
     RETFIE
 END ;End of code. This is required
