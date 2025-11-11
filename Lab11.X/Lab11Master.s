@@ -184,24 +184,24 @@ I2C_SEND:
     GOTO ERROR1        ; Jump to error if NACK
     
     ; Send First Data Byte (0x04)
-    BCF STATUS, 5      ; To Bank 0
-    BCF STATUS, 6
-    MOVLW 0x08         ; Your original data byte
-    MOVWF SSPBUF       ; Load (starts transmit)
-    BTFSS PIR1, 3      ; Wait for complete
-    GOTO $-1
-    BCF PIR1, 3        ; Clear SSPIF
+    ;BCF STATUS, 5      ; To Bank 0
+    ;BCF STATUS, 6
+    ;MOVLW 0x06         ; Your original data byte
+    ;MOVWF SSPBUF       ; Load (starts transmit)
+    ;BTFSS PIR1, 3      ; Wait for complete
+    ;GOTO $-1
+    ;BCF PIR1, 3        ; Clear SSPIF
     
     ; Check ACK for First Data
-    BSF STATUS, 5      ; To Bank 1
-    BCF STATUS, 6
-    BTFSC SSPCON2, 6   ; ACKSTAT=0?
-    GOTO ERROR1
+    ;BSF STATUS, 5      ; To Bank 1
+    ;BCF STATUS, 6
+    ;BTFSC SSPCON2, 6   ; ACKSTAT=0?
+    ;GOTO ERROR1
     
     ; Send Second Data Byte (Extra: 0x05) - Repeat Block for More Bytes
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x04        ; Example extra data (change as needed)
+    MOVLW 0x03        ; Example extra data (change as needed)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
@@ -216,7 +216,7 @@ I2C_SEND:
     ; Send Third Data Byte (Extra: 0x06) - Add More Here if Needed
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x06        ; Another example (expand pattern)
+    MOVLW 0x04        ; Another example (expand pattern)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
