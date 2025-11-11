@@ -88,7 +88,7 @@ Setup:
     CLRF PIR2 ; Clear BCLIF
     MOVLW 0x28 ; SSPCON: SSPEN=1 (enable last), CKP=0 (don't-care), SSPM=1000 (I2C master)
     MOVWF SSPCON
-    BSF ADCON0, 1
+    BSF ADCON0, 0 ; ADON=1 (enable ADC)
     
     BANKSEL ADCON1
     BCF ADCON1, 7
@@ -112,6 +112,8 @@ Setup:
 ;Main Program Loop (Loops forever)
 MAINLOOP:
     
+    
+
 HIGH0: ;Nested loop for delay of 5 on display
     MOVLW 0X10 ;89 in decimal
     MOVWF COUNT3 ;References variable
@@ -161,17 +163,28 @@ LOOPB: ;Loop tied to display of low
     GOTO DISPLAYLOW ;Once the delay is passed a 0 is displayed
   
 DISPLAYHIGH:
-   ; MOVLW 0X05 ;Hex code for high into register
-  ; MOVWF PORTC ;Registers hex code out of port c
+    ; Trigger ADC conversion
+    BSF ADCON0, 1   ; GO/DONE=1, start conversion
+    
+    ; Wait for completion
+ADC_WAIT:
+    BTFSC ADCON0, 1 ; Check GO/DONE=0?
+    GOTO ADC_WAIT   ; Loop until done
+    
+    ; Read ADC result (left-justified: ADRESH has high 8 bits)
+    MOVF ADRESH, W  ; W = ADRESH (high byte of ADC)
+    MOVWF ADC_GO    ; Store in ADC_GO for I2C send
+    
+    ; Optional: Store full 10-bit if needed
+    ; MOVF ADRESH, W
+    ; MOVWF RESULT_HI
+    ; MOVF ADRESL, W
+    ; MOVWF RESULT_LO
+    
     GOTO LOW0 ;Goes to the low0 loop
-  
 DISPLAYLOW:
-   ; MOVLW 0X00 ;Stores 0 in register
-    ;MOVWF PORTC;Data from register goes into PortC
     CALL I2C_SEND ; Execute I2C send after each low display (inside the loop)
     GOTO HIGH0 ;Goes to the high portion of the code (keeps blinking infinite)
-  
-GOTO MAINLOOP ; Redundant as loop is infinite, but harmless
   
 ; Sends I2C
 ; Sends I2C (Multi-Byte Write Example)
@@ -250,58 +263,7 @@ ERROR1:
   
 INTERRUPT:
   
-   BSF PORTC, 0 ; Debug: Toggle RC0 on ISR entry (scope/LED for ISR hits)
-    NOP
-    BCF PORTC, 0
-    BTFSS PIR1, 3 ; SSPIF set? (I2C activity)
-    GOTO CHECK_BCL
-    BCF PIR1, 3 ; Clear SSPIF
-    BSF STATUS, 5 ; Bank 1: Check/clear errors in SSPSTAT
-    BCF STATUS, 6
-    BTFSC SSPSTAT, 4 ; SSPOV=1? (overflow, e.g., unread data)
-    CLRF SSPSTAT ; Clears SSPOV & WCOL, forces next ACK
-    BTFSC SSPSTAT, 7 ; WCOL=1? (write collision)
-    CLRF SSPSTAT
-    MOVLW 0x01 ; Init counter for data bytes (your COUNT1=0x20)
-    MOVWF COUNT1 ; Reset on each transaction (or use flag)
-    BTFSC SSPSTAT, 5 ; D/A=1? (data phase?store it!)
-    GOTO READ_DATA
-    ; Address phase (D/A=0): Just ACK, discard value
-    BCF STATUS, 5 ; Bank 0
-    BCF STATUS, 6
-    MOVF SSPBUF, W ; Read to clear BF ? generates ACK
-    ; No store?address ignored
-    GOTO INT_EXIT
-READ_DATA:
-    BCF STATUS, 5 ; Bank 0
-    BCF STATUS, 6
-    MOVF SSPBUF, W ; Read data ? clears BF, auto-ACK
-    MOVF ADC_GO, W ; Store (overwrites: 0x04 ? 0x05 ? 0x06)
-    ; Debug: Count data bytes received
-    BTFSC COUNT1, 0 ; First data byte?
-    GOTO SECOND_DATA
-    BSF PORTC, 1 ; Toggle RC1 for 0x04 (first data)
-    NOP
-    BCF PORTC, 1
-    INCF COUNT1, F ; COUNT1=2 now
-    GOTO INT_EXIT
-SECOND_DATA:
-    BSF PORTC, 2 ; Toggle RC2 for 0x05+ (subsequent)
-    NOP
-    BCF PORTC, 2
-    GOTO INT_EXIT
-    ; Slave read mode (R/W=1, master requesting data from us?not your current case)
-    ; BTFSC SSPSTAT, 2 ; If expanding: Test R/W=1 here
-SLAVE_READ_PLACEHOLDER:
-    MOVLW 0xAA ; Example: Load dummy response to SSPBUF
-    MOVWF SSPBUF ; (Master will read this next)
-    GOTO INT_EXIT
-CHECK_BCL:
-    BTFSS PIR2, 3 ; BCLIF? (Bus collision?rare in sim)
-    GOTO INT_EXIT
-    BCF PIR2, 3
-    BCF SSPCON, 5 ; Disable/re-enable MSSP
-    BSF SSPCON, 5
-INT_EXIT:
+
+
     RETFIE ; Return, re-enable interrupts
 END ;End of code. This is required
