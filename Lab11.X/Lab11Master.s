@@ -1,4 +1,4 @@
-;How would I get to send extra data after the acknowledge bit is recieved?;LAB 11
+;LAB 11
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
@@ -43,7 +43,8 @@ Setup:
 ; Bank 3
     BSF STATUS, 5 ; RP0=1
     BSF STATUS, 6 ; RP1=1, now Bank 3
-   
+   MOVLW 0X02
+   MOVWF ANSEL
     CLRF ANSELH ; Digital I/O for higher pins
     CLRF INTCON ; Disable interrupts (your original)
     CLRF OPTION_REG ; Your original
@@ -59,7 +60,7 @@ Setup:
     CLRF PSTRCON ; Disable PWM steering
     MOVLW 0x18 ; Set TRISC: bits 3 (SCL) and 4 (SDA) to 1 for I2C, others 0 (outputs)
     MOVWF TRISC ; Critical for I2C pin control
-    MOVLW 0x00
+    MOVLW 0x42
     MOVWF PIE1 ; SSPIE=0 (no SSP interrupt)
     MOVLW 0x00
     MOVWF PIE2 ; BCLIE=0 (no bus collision interrupt)
@@ -69,6 +70,10 @@ Setup:
     MOVWF SSPADD ; Adjust if FOSC != 4 MHz (e.g., 8 MHz: 0x13)
      MOVLW 0x0F ; Set lower 4 bits of PORTB as inputs (your original)
     MOVWF TRISB ; TRISB in bank 3 mirror (0x186)
+    MOVLW 0XF0
+    MOVWF PR2
+    MOVLW 0XC5
+    MOVWF ADCON1
 ; Bank 0
     BCF STATUS, 5 ; RP0=0
     BCF STATUS, 6 ; RP1=0, now Bank 0
@@ -83,6 +88,10 @@ Setup:
     CLRF PIR2 ; Clear BCLIF
     MOVLW 0x28 ; SSPCON: SSPEN=1 (enable last), CKP=0 (don't-care), SSPM=1000 (I2C master)
     MOVWF SSPCON
+    BSF ADCON0, 1
+    
+    BANKSEL ADCON1
+    BCF ADCON1, 7
   
 ;Register/Variable setups
      COUNT1 EQU 0x20 ;For specific counts in below loops
@@ -92,9 +101,17 @@ Setup:
      COUNT5 EQU 0X24 ;For specific counts in below loops
      COUNT6 EQU 0X25 ;For specific counts in below loops
      COUNT7 EQU 0X26 ;For specific counts in below loops
-   
+     RESULT_HI EQU 0X27
+     RESULT_LO EQU 0X28
+     ADC_CONTINUOUS EQU 0X29
+     ADC_DATA EQU 0X2A
+     W_TEMP EQU 0X2B
+     STATUS_TEMP EQU 0X2C
+     ADC_GO EQU 0X2D
+ 
 ;Main Program Loop (Loops forever)
 MAINLOOP:
+    
 HIGH0: ;Nested loop for delay of 5 on display
     MOVLW 0X10 ;89 in decimal
     MOVWF COUNT3 ;References variable
@@ -183,22 +200,7 @@ I2C_SEND:
     BTFSC SSPCON2, 6   ; ACKSTAT=0? (good ACK)
     GOTO ERROR1        ; Jump to error if NACK
     
-    ; Send First Data Byte (0x04)
-    ;BCF STATUS, 5      ; To Bank 0
-    ;BCF STATUS, 6
-    ;MOVLW 0x06         ; Your original data byte
-    ;MOVWF SSPBUF       ; Load (starts transmit)
-    ;BTFSS PIR1, 3      ; Wait for complete
-    ;GOTO $-1
-    ;BCF PIR1, 3        ; Clear SSPIF
-    
-    ; Check ACK for First Data
-    ;BSF STATUS, 5      ; To Bank 1
-    ;BCF STATUS, 6
-    ;BTFSC SSPCON2, 6   ; ACKSTAT=0?
-    ;GOTO ERROR1
-    
-    ; Send Second Data Byte (Extra: 0x05) - Repeat Block for More Bytes
+    ; Send  Data Byte (Extra: 0x05) - Repeat Block for More Bytes
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
     MOVLW 0x03        ; Example extra data (change as needed)
@@ -213,10 +215,11 @@ I2C_SEND:
     BTFSC SSPCON2, 6
     GOTO ERROR1
     
-    ; Send Third Data Byte (Extra: 0x06) - Add More Here if Needed
+    ; Send  Data Byte (Extra: 0x06) - Add More Here if Needed
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x04        ; Another example (expand pattern)
+  ;  MOVLW 0x06  ; Another example (expand pattern)
+    MOVF ADC_GO, W
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
@@ -244,11 +247,61 @@ ERROR1:
     BCF SSPCON, 5      ; SSPEN=0 (disable)
     BSF SSPCON, 5      ; SSPEN=1 (re-enable)
     RETURN
-
   
 INTERRUPT:
   
-  
-  
-    RETFIE
+   BSF PORTC, 0 ; Debug: Toggle RC0 on ISR entry (scope/LED for ISR hits)
+    NOP
+    BCF PORTC, 0
+    BTFSS PIR1, 3 ; SSPIF set? (I2C activity)
+    GOTO CHECK_BCL
+    BCF PIR1, 3 ; Clear SSPIF
+    BSF STATUS, 5 ; Bank 1: Check/clear errors in SSPSTAT
+    BCF STATUS, 6
+    BTFSC SSPSTAT, 4 ; SSPOV=1? (overflow, e.g., unread data)
+    CLRF SSPSTAT ; Clears SSPOV & WCOL, forces next ACK
+    BTFSC SSPSTAT, 7 ; WCOL=1? (write collision)
+    CLRF SSPSTAT
+    MOVLW 0x01 ; Init counter for data bytes (your COUNT1=0x20)
+    MOVWF COUNT1 ; Reset on each transaction (or use flag)
+    BTFSC SSPSTAT, 5 ; D/A=1? (data phase?store it!)
+    GOTO READ_DATA
+    ; Address phase (D/A=0): Just ACK, discard value
+    BCF STATUS, 5 ; Bank 0
+    BCF STATUS, 6
+    MOVF SSPBUF, W ; Read to clear BF ? generates ACK
+    ; No store?address ignored
+    GOTO INT_EXIT
+READ_DATA:
+    BCF STATUS, 5 ; Bank 0
+    BCF STATUS, 6
+    MOVF SSPBUF, W ; Read data ? clears BF, auto-ACK
+    MOVF ADC_GO, W ; Store (overwrites: 0x04 ? 0x05 ? 0x06)
+    ; Debug: Count data bytes received
+    BTFSC COUNT1, 0 ; First data byte?
+    GOTO SECOND_DATA
+    BSF PORTC, 1 ; Toggle RC1 for 0x04 (first data)
+    NOP
+    BCF PORTC, 1
+    INCF COUNT1, F ; COUNT1=2 now
+    GOTO INT_EXIT
+SECOND_DATA:
+    BSF PORTC, 2 ; Toggle RC2 for 0x05+ (subsequent)
+    NOP
+    BCF PORTC, 2
+    GOTO INT_EXIT
+    ; Slave read mode (R/W=1, master requesting data from us?not your current case)
+    ; BTFSC SSPSTAT, 2 ; If expanding: Test R/W=1 here
+SLAVE_READ_PLACEHOLDER:
+    MOVLW 0xAA ; Example: Load dummy response to SSPBUF
+    MOVWF SSPBUF ; (Master will read this next)
+    GOTO INT_EXIT
+CHECK_BCL:
+    BTFSS PIR2, 3 ; BCLIF? (Bus collision?rare in sim)
+    GOTO INT_EXIT
+    BCF PIR2, 3
+    BCF SSPCON, 5 ; Disable/re-enable MSSP
+    BSF SSPCON, 5
+INT_EXIT:
+    RETFIE ; Return, re-enable interrupts
 END ;End of code. This is required
