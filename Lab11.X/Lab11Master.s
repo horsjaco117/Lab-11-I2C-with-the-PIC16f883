@@ -198,10 +198,10 @@ I2C_SEND:
     BTFSC SSPCON2, 0   ; Wait for start complete (SEN=0)
     GOTO $-1
     
-    ; Send Slave Address + Write Bit 
+    ; Send Slave Address + Write Bit (0xA0)
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x40        ;40 is the correct address
+    MOVLW 0x40        ; Slave addr 0x50 <<1 | W (0)
     MOVWF SSPBUF       ; Load into buffer (starts transmit)
     BTFSS PIR1, 3      ; Wait for transmit complete (SSPIF=1)
     GOTO $-1
@@ -213,31 +213,32 @@ I2C_SEND:
     BTFSC SSPCON2, 6   ; ACKSTAT=0? (good ACK)
     GOTO ERROR1        ; Jump to error if NACK
     
-    ; Send First Data Byte (0x03 - e.g., memory address for EEPROM)
+    ; Send  Data Byte (Extra: 0x05) - Repeat Block for More Bytes
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVLW 0x03        ; Example extra data (change as needed)
-    MOVWF SSPBUF
-    BTFSS PIR1, 3
-    GOTO $-1
-    BCF PIR1, 3
-    
-    ; Check ACK for First Data
-    BSF STATUS, 5      ; To Bank 1
-    BCF STATUS, 6
-    BTFSC SSPCON2, 6
-    GOTO ERROR1
-    
-    ; Send Second Data Byte (ADC_GO)
-    BCF STATUS, 5      ; To Bank 0
-    BCF STATUS, 6
-    MOVF ADC_GO, W
+    MOVLW 0x40        ; Example extra data (change as needed)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
     BCF PIR1, 3
     
     ; Check ACK for Second Data
+    BSF STATUS, 5      ; To Bank 1
+    BCF STATUS, 6
+    BTFSC SSPCON2, 6
+    GOTO ERROR1
+    
+    ; Send  Data Byte (Extra: 0x06) - Add More Here if Needed
+    BCF STATUS, 5      ; To Bank 0
+    BCF STATUS, 6
+    MOVLW 0x06  ; Another example (expand pattern)
+ ;   MOVF ADC_GO, W
+    MOVWF SSPBUF
+    BTFSS PIR1, 3
+    GOTO $-1
+    BCF PIR1, 3
+    
+    ; Check ACK for Third Data
     BSF STATUS, 5      ; To Bank 1
     BCF STATUS, 6
     BTFSC SSPCON2, 6
@@ -253,14 +254,9 @@ I2C_SEND:
     RETURN
 
 ERROR1:
-    ; Issue Stop even on error to release bus
+    ; Simple MSSP Reset (Your Original)
     BCF STATUS, 5      ; Ensure Bank 0
     BCF STATUS, 6
-    BSF SSPCON2, 2     ; PEN=1 (issue Stop)
-    BTFSC SSPCON2, 2
-    GOTO $-1           ; Wait for PEN=0
-    
-    ; Simple MSSP Reset
     BCF SSPCON, 5      ; SSPEN=0 (disable)
     BSF SSPCON, 5      ; SSPEN=1 (re-enable)
     RETURN
