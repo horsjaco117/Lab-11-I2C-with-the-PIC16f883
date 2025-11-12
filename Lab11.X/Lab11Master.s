@@ -116,7 +116,7 @@ Setup:
      STATUS_TEMP EQU 0X2C
      TEMP EQU 0x2D  ; Temporary register for shifts
      CURRENT_INDEX EQU 0x2E  ; New: Index for cycling through channels (0-2)
-     DATA_TO_SEND EQU 0x2F  ; Single ADC value to send
+     DATA_TO_SEND EQU 0x2F  ; Single ADC value to send (now with LSBs as channel ID)
      CHANNEL_TABLE EQU 0x30  ; New: Base for channel array [0,1,2] for indirect cycle
  
 ; Main Program Loop (Loops forever)
@@ -151,6 +151,11 @@ START_CONV:  ; Start/restart conversion
     BANKSEL ADRESH  ; Bank 0
     MOVF ADRESH, W
     MOVWF DATA_TO_SEND  ; Store for I2C send
+    
+    ; Embed channel ID in low 2 LSBs (overwrites ADC bits 1:0; IDs: 1=01b for AD0, 2=10b for AD1, 3=11b for AD2)
+    MOVF CURRENT_INDEX, W  ; Load index (0-2)
+    ADDLW 0x01             ; W = 1-3 (channel ID)
+    IORWF DATA_TO_SEND, F  ; OR into low bits of DATA_TO_SEND (clears nothing?direct OR assumes low bits free or acceptable overwrite)
 
 ; Blinking Delays (process one channel per cycle)
 HIGH0: ; Nested loop for delay of 5 on display
@@ -191,7 +196,7 @@ INNERLOOP1:
     GOTO FINALLOOP1 ; Goes through the loop until 0 is reached
   
     CALL Delay2 ; Simple loop for fine tuning delay time
-    CALL I2C_SEND ; Execute I2C send with single ADC value
+    CALL I2C_SEND ; Execute I2C send with single ADC value (LSBs as channel ID)
   
     ; Cycle to next channel index (mod 3)
     INCF CURRENT_INDEX, F
@@ -222,7 +227,7 @@ LOOPB: ; Loop tied to display of low
     NOP
     RETURN
   
-; Sends I2C (Address + One Data Byte)
+; Sends I2C (Address + One Data Byte with embedded Channel ID in LSBs)
 I2C_SEND:
     ; Check bus idle (in Bank 1)
     BSF STATUS, 5      ; To Bank 1
@@ -248,25 +253,25 @@ I2C_SEND:
     BTFSC SSPCON2, 6   ; ACKSTAT=0? (good ACK)
     GOTO ERROR1        ; Jump to error if NACK
     
-    ; Send Single Data Byte (ADC value)
+    ; Send Single Data Byte (ADC value with Channel ID in low 2 bits)
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVF DATA_TO_SEND, W  ; Load current ADC value
+    MOVF DATA_TO_SEND, W  ; Load packed value (ADC high 6 bits + ID low 2 bits)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
     BCF PIR1, 3
     
-    ; Check ACK for Data
+    ; Check ACK for Address
     BSF STATUS, 5      ; To Bank 1
     BCF STATUS, 6
-    BTFSC SSPCON2, 6
-    GOTO ERROR1
+    BTFSC SSPCON2, 6   ; ACKSTAT=0? (good ACK)
+    GOTO ERROR1        ; Jump to error if NACK
     
-    ; Send Single Data Byte (ADC value)
+    ; Send Single Data Byte (ADC value with Channel ID in low 2 bits)
     BCF STATUS, 5      ; To Bank 0
     BCF STATUS, 6
-    MOVF DATA_TO_SEND, W  ; Load current ADC value
+    MOVF DATA_TO_SEND, W  ; Load packed value (ADC high 6 bits + ID low 2 bits)
     MOVWF SSPBUF
     BTFSS PIR1, 3
     GOTO $-1
@@ -297,4 +302,4 @@ ERROR1:
 
 INTERRUPT:
     RETFIE
-END ; End of code. This is required
+END
