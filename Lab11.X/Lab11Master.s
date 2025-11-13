@@ -159,13 +159,13 @@ START_CONV:  ; Start/restart conversion
 
 ; Blinking Delays (process one channel per cycle)
 HIGH0: ; Nested loop for delay of 5 on display
-    MOVLW 0X10 ; 89 in decimal? (original comment; actual cycles ~10x10x10)
+    MOVLW 0X01 ; 89 in decimal? (original comment; actual cycles ~10x10x10)
     MOVWF COUNT3 ; References variable
 FINALLOOP0: 
-    MOVLW 0X10 ; 92 in decimal
+    MOVLW 0X01 ; 92 in decimal
     MOVWF COUNT2 ; Reference variable
 OUTERLOOP0: 
-    MOVLW 0X10 ; 19 in decimal
+    MOVLW 0X01 ; 19 in decimal
     MOVWF COUNT1 ; Reference variable
 INNERLOOP0: 
     DECFSZ COUNT1 ; Decrements the # in count1 until 0 reached
@@ -179,13 +179,13 @@ INNERLOOP0:
     GOTO LOW0 ; Once the delay is passed a 5 displays (blinking intent)
   
 LOW0:
-    MOVLW 0X10 ; 91 in decimal
+    MOVLW 0X01 ; 91 in decimal
     MOVWF COUNT6 ; Reference variable
 FINALLOOP1: 
-    MOVLW 0X5C ; 96 in decimal
+    MOVLW 0X01 ; 96 in decimal
     MOVWF COUNT5 ; Reference variable
 OUTERLOOP1: 
-    MOVLW 0X13 ; 19 in decimal
+    MOVLW 0X01 ; 19 in decimal
     MOVWF COUNT4 ; Reference variable
 INNERLOOP1: 
     DECFSZ COUNT4 ; Decrements the # in count4 until 0 reached
@@ -208,7 +208,7 @@ INNERLOOP1:
   
 ; Delay Subroutines
 Delay1: ; Simple loop for fine tuning delay time
-    MOVLW 0X10 ; 47 in decimal
+    MOVLW 0X01 ; 47 in decimal
     MOVWF COUNT7 ; Moves 47 into the count7 variable
 LOOPA: ; Simple loop tied to 5 of display
     DECFSZ COUNT7 ; Decrement until count7 equals zero
@@ -218,7 +218,7 @@ LOOPA: ; Simple loop tied to 5 of display
     RETURN
 
 Delay2: ; Simple loop for fine tuning delay time
-    MOVLW 0X10 ; 47 in decimal
+    MOVLW 0X01 ; 47 in decimal
     MOVWF COUNT7 ; Moves 47 into the count7 variable
 LOOPB: ; Loop tied to display of low
     DECFSZ COUNT7 ; Decrement until count7 equals 0
