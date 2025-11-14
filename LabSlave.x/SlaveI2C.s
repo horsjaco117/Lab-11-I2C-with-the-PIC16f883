@@ -1,417 +1,328 @@
-;LAB 11 - Slave (Polling Version)
+;LAB 11 - Slave (Interrupt Version)
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
-;I2C Communication (Slave - Polling Mode)
+;I2C Communication (Slave - Interrupt Mode)
 ;Git URL: https://github.com/horsjaco117/Assembly_Code
-     
+    
 ;Device Setup
 ;--------------------------------------------------------------------------
 ;Configuration (unchanged)
-    ; CONFIG1
-  CONFIG FOSC = HS
-  CONFIG WDTE = OFF
-  CONFIG PWRTE = OFF
-  CONFIG MCLRE = ON
-  CONFIG CP = OFF
-  CONFIG CPD = OFF
-  CONFIG BOREN = OFF
-  CONFIG IESO = OFF
-  CONFIG FCMEN = OFF
-  CONFIG LVP = OFF
+    CONFIG FOSC = HS
+    CONFIG WDTE = OFF
+    CONFIG PWRTE = OFF
+    CONFIG MCLRE = ON
+    CONFIG CP = OFF
+    CONFIG CPD = OFF
+    CONFIG BOREN = OFF
+    CONFIG IESO = OFF
+    CONFIG FCMEN = OFF
+    CONFIG LVP = OFF
 ; CONFIG2
-  CONFIG BOR4V = BOR40V
-  CONFIG WRT = OFF
+    CONFIG BOR4V = BOR40V
+    CONFIG WRT = OFF
 ;Include Statements
 #include <xc.inc>
 ;Code Section
 ;--------------------------------------------------------------------------
-  
+ 
 ;Register/Variable Setup
   SOMEVALUE EQU 0x5f
-  RECEIVED_DATA EQU 0x27 ; Variable to store received I2C data
+  RECEIVED_DATA EQU 0x27
+  W_TEMP EQU 0x21
+  STATUS_TEMP EQU 0x22
+  PULSE_SELECT EQU 0x26 ; Not used, but retained for compatibility
+  COUNT1 EQU 0x20
+  TEMP EQU 0x28
+  SERVO_ID EQU 0x29
+  POS EQU 0x2A
+  SERVO_POS1 EQU 0x2B
+  SERVO_POS2 EQU 0x2C
+  SERVO_POS3 EQU 0x2D
+  SERVO_COUNT1 EQU 0x2E
+  SERVO_COUNT2 EQU 0x2F
+  SERVO_COUNT3 EQU 0x30
+  STATE EQU 0x31
+  PHASE_COUNT_LOW EQU 0x32
+  PHASE_COUNT_HIGH EQU 0x33
+  SPACE_LOW EQU 0x34
+  SPACE_HIGH EQU 0x35
+  TEMP_LOW EQU 0x36
+  TEMP_HIGH EQU 0x37
+
 ;---------------------------------------------------------------------
 ; Reset & Interrupt vectors
 ;---------------------------------------------------------------------
 PSECT resetVect, class=CODE, delta=2
     GOTO Start
 PSECT isrVect, class=CODE, delta=2
-    GOTO INTERRUPT  ; ISR now just returns (polling mode)
+    GOTO INTERRUPT
 Start:
 Setup:
-; Bank 3 (Modified: TRISB=0x00 for full PORTB outputs)
-    BSF STATUS, 5
-    BSF STATUS, 6
-    MOVLW 0x00          ; All PORTB as outputs (for binary display)
-    MOVWF TRISB
-    CLRF ANSELH
-    CLRF INTCON
-    CLRF OPTION_REG
-; Bank 2 (unchanged)
-    BCF STATUS, 5
-    CLRF CM2CON1
-; Bank 1 (unchanged except order for stability)
-    BSF STATUS, 5
-    BCF STATUS, 6
-    MOVLW 0xFF
-    MOVWF WPUB
-    CLRF IOCB
-    CLRF PSTRCON
-    MOVLW 0x18
-    MOVWF TRISC
-    ; Note: PIE1 and PIE2 still set for flags, but interrupts disabled below
-    MOVLW 0x08
-    MOVWF PIE1 ; SSPIE=1 (enables flag, but no IRQ)
-    MOVLW 0x08
-    MOVWF PIE2 ; BCLIE=1 (enables flag, but no IRQ)
-    CLRF SSPCON2
-    MOVLW 0x80
-    MOVWF SSPSTAT ; SMP=1, CKE=0
-    MOVLW 0x40
-    MOVWF SSPADD ; Address 0x50 <<1
-    MOVLW 0XF0
-    MOVWF PR2
-; Bank 0
-    BCF STATUS, 5
-    BCF STATUS, 6
-    MOVLW 0X7E
-    MOVWF T2CON
-    CLRF CCP1CON
-    CLRF PORTC
-    CLRF CCP2CON
-    CLRF PORTB
-    CLRF RCSTA
-    CLRF T1CON
-    CLRF PIR1
-    CLRF PIR2
-    ; Changed: Disable GIE/PEIE for polling mode
-    MOVLW 0x00
-    MOVWF INTCON ; GIE=0, PEIE=0 (no interrupts)
-    CLRF RECEIVED_DATA ; Initialize
-    MOVLW 0x26 ; Fix: SSPM=0110 (slave), CKP=0 (no stretch), SSPEN=1 LAST
-    MOVWF SSPCON
-    ; Stabilization delay (~50 cycles)
-    MOVLW 0x14 ; ~20 loops for ~50 cycles
-    MOVWF 0x28 ; Temp GPR
-DELAY_STAB:
-    DECFSZ 0x28, F
-    GOTO DELAY_STAB
-  
-;Register/Variable setups (unchanged)
-    COUNT1 EQU 0x20
-    W_TEMP EQU 0X21
-    STATUS_TEMP EQU 0X22
-    TIMER_COUNT EQU 0X23
-    PR2_PulseWidth EQU 0X24
-    PR2_PulseSpace EQU 0X25
-    PulseSelect EQU 0X26
-     COUNT7 EQU 0X26
-   
-;Main Program Loop (modified for polling)
-MAINLOOP:
+  BSF STATUS, 5
+  BSF STATUS, 6
+  MOVLW 0x00
+  MOVWF TRISB
+  CLRF ANSELH
+  CLRF OPTION_REG
+  BCF STATUS, 5
+  CLRF CM2CON1
+  BSF STATUS, 5
+  BCF STATUS, 6
+  MOVLW 0x00
+  MOVWF TRISA
+  CLRF ANSEL
+  MOVLW 0xFF
+  MOVWF WPUB
+  CLRF IOCB
+  CLRF PSTRCON
+  MOVLW 0x18
+  MOVWF TRISC
+  MOVLW 0x0B ; SSPIE=1, TMR2IE=1
+  MOVWF PIE1
+  MOVLW 0x08
+  MOVWF PIE2
+  CLRF SSPCON2
+  MOVLW 0x80
+  MOVWF SSPSTAT
+  MOVLW 0x40
+  MOVWF SSPADD
+  MOVLW 0x3F ; PR2 for small interval (64 ticks)
+  MOVWF PR2
+  BCF STATUS, 5
+  BCF STATUS, 6
+  MOVLW 0x00
+  MOVWF TMR2
+  MOVLW 0x04 ; TMR2ON=1, T2CKPS=00 (prescale 1)
+  MOVWF T2CON
+  CLRF CCP1CON
+  CLRF PORTC
+  CLRF CCP2CON
+  CLRF PORTB
+  CLRF RCSTA
+  CLRF T1CON
+  CLRF PIR1
+  CLRF PIR2
+  CLRF PORTA
+  CLRF RECEIVED_DATA
+  MOVLW 0x26
+  MOVWF SSPCON
+  MOVLW 0xC0 ; GIE=1, PEIE=1
+  MOVWF INTCON
+  ; Initialize servo positions to 0
+  CLRF SERVO_POS1
+  CLRF SERVO_POS2
+  CLRF SERVO_POS3
+  ; Set initial counts (for pos=0)
+  MOVLW 39
+  MOVWF SERVO_COUNT1
+  MOVWF SERVO_COUNT2
+  MOVWF SERVO_COUNT3
+  ; Calculate initial space
+  CALL CALC_SPACE
+  ; Start with state 3 (space), phase count to space
+  MOVLW 0x03
+  MOVWF STATE
+  MOVF SPACE_LOW, W
+  MOVWF PHASE_COUNT_LOW
+  MOVF SPACE_HIGH, W
+  MOVWF PHASE_COUNT_HIGH
 
-COMM_START:
-    MOVF RECEIVED_DATA, W
-    MOVWF PORTB          ; Display last RX byte on PORTB (binary)
-    ; MOVWF PORTC       ; Uncomment if also show on PORTC
-    
-    ; Polling Logic: Moved from ISR - Check I2C flags here (after display for timing)
-    BTFSS PIR1, 3 ; SSPIF set? (I2C activity)
-    GOTO CHECK_BCL_POLL
-    BCF PIR1, 3 ; Clear SSPIF
-    BSF STATUS, 5 ; Bank 1: Check/clear errors in SSPSTAT
-    BCF STATUS, 6
-    BTFSC SSPSTAT, 4 ; SSPOV=1? (overflow, e.g., unread data)
-    CLRF SSPSTAT ; Clears SSPOV & WCOL, forces next ACK
-    BTFSC SSPSTAT, 7 ; WCOL=1? (write collision)
-    CLRF SSPSTAT
-    MOVLW 0x01 ; Init counter for data bytes (your COUNT1=0x20)
-    MOVWF COUNT1 ; Reset on each transaction (or use flag)
-    BTFSC SSPSTAT, 5 ; D/A=1? (data phase?store it!)
-    GOTO READ_DATA_POLL
-    ; Address phase (D/A=0): Just ACK, discard value
-    BCF STATUS, 5 ; Bank 0
-    BCF STATUS, 6
-    MOVF SSPBUF, W ; Read to clear BF ? generates ACK
-    ; No store?address ignored
-    GOTO POLL_EXIT
-READ_DATA_POLL:
-    BCF STATUS, 5 ; Bank 0
-    BCF STATUS, 6
-    MOVF SSPBUF, W ; Read data ? clears BF, auto-ACK
-    MOVWF RECEIVED_DATA ; Store (overwrites: 0x04 ? 0x05 ? 0x06)
-    ; Debug: Count data bytes received
-    BTFSC COUNT1, 0 ; First data byte?
-    GOTO SECOND_DATA_POLL
-    BSF PORTC, 1 ; Toggle RC1 for 0x04 (first data)
-    NOP
-    BCF PORTC, 1
-    INCF COUNT1, F ; COUNT1=2 now
-    GOTO POLL_EXIT
-SECOND_DATA_POLL:
-    BSF PORTC, 2 ; Toggle RC2 for 0x05+ (subsequent)
-    NOP
-    BCF PORTC, 2
-    GOTO POLL_EXIT
-    ; Slave read mode (R/W=1, master requesting data from us?not your current case)
-    ; BTFSC SSPSTAT, 2 ; If expanding: Test R/W=1 here
-SLAVE_READ_PLACEHOLDER_POLL:
-    MOVLW 0x40 ; Example: Load dummy response to SSPBUF
-    MOVWF SSPBUF ; (Master will read this next)
-    GOTO POLL_EXIT
-CHECK_BCL_POLL:
-    BTFSS PIR2, 3 ; BCLIF? (Bus collision?rare in sim)
-    GOTO POLL_EXIT
-    BCF PIR2, 3
-    BCF SSPCON, 5 ; Disable/re-enable MSSP
-    BSF SSPCON, 5
-POLL_EXIT:
-    ; End of polling - resume main loop
-    
-GOTO MAINLOOP
-  
-; Simplified ISR (just returns, since polling)
+MAINLOOP:
+  GOTO MAINLOOP
+
 INTERRUPT:
-        MOVWF W_TEMP
-    SWAPF STATUS, W
-    MOVWF STATUS_TEMP
-    
-   
+  MOVWF W_TEMP
+  SWAPF STATUS, W
+  MOVWF STATUS_TEMP
+  BTFSC PIR1, 1
+  GOTO HANDLE_SERVO
+  BTFSC PIR1, 3
+  GOTO HANDLE_I2C
+  BTFSC PIR2, 3
+  GOTO HANDLE_BCL
+  GOTO INTERRUPT_END
+
 HANDLE_SERVO:
-    DECFSZ TIMER_COUNT, F
-    GOTO INTERRUPT_END
-   
-    ;SEARCHING FOR THE RIGHT BITS
-    BTFSC PORTB,7
-    GOTO Bx1UUU
-    BTFSC PORTB,6
-    GOTO Bx01UU
-    BTFSC PORTB,5
-    GOTO Bx001U
-    BTFSC PORTB,4
-    GOTO Bx0001
-    GOTO Bx0000
-   
-Bx1UUU:
-    BTFSC PORTB,6
-    GOTO Bx11UU
-    BTFSC PORTB,5
-    GOTO Bx101U
-    BTFSC PORTB,4
-    GOTO Bx1001
-    GOTO Bx1000
-   
-Bx11UU:
-    BTFSC PORTB,5
-    GOTO Bx111U
-    BTFSC PORTB,4
-    GOTO Bx1101
-    GOTO Bx1100
-   
-Bx101U:
-    BTFSC PORTB,4
-    GOTO Bx1011
-    GOTO Bx1010
-   
-Bx111U:
-    BTFSC PORTB,4
-    GOTO Bx1111
-    GOTO Bx1110
-   
-Bx01UU:
-    BTFSC PORTB,5
-    GOTO Bx011U
-    BTFSC PORTB,4
-    GOTO Bx0101
-    GOTO Bx0100
-   
-Bx011U:
-    BTFSC PORTB,4
-    GOTO Bx0111
-    GOTO Bx0110
-   
-Bx001U:
-    BTFSC PORTB,4
-    GOTO Bx0011
-    GOTO Bx0010
-   
-;SETTING THE RIGHT TIMES FOR THE SELECTED BITS
-Bx0000:
-    MOVLW 0x4D
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB9
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0001:
-    MOVLW 0x52
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB8
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0010:
-    MOVLW 0x57
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB7
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0011:
-    MOVLW 0x5D
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB7
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0100:
-    MOVLW 0x62
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB6
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0101:
-    MOVLW 0x67
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB5
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0110:
-    MOVLW 0x6C
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB5
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx0111:
-    MOVLW 0x71
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB4
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1000:
-    MOVLW 0x77
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB3
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1001:
-    MOVLW 0x7C
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB3
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1010:
-    MOVLW 0x81
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB2
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1011:
-    MOVLW 0x86
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB1
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1100:
-    MOVLW 0x8B
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB1
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1101:
-    MOVLW 0x91
-    MOVWF PR2_PulseWidth
-    MOVLW 0xB0
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1110:
-    MOVLW 0x96
-    MOVWF PR2_PulseWidth
-    MOVLW 0xAF
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-Bx1111:
-    MOVLW 0x9B
-    MOVWF PR2_PulseWidth
-    MOVLW 0xAF
-    MOVWF PR2_PulseSpace
-    BTFSC PulseSelect, 0
-    GOTO PulseWidthTime
-    GOTO PulseSpaceTime
-   
-PulseWidthTime:
-    MOVF PR2_PulseWidth,0
-    BSF STATUS,5
-    MOVWF PR2
-    BCF STATUS,5
-    MOVLW 0x01
-    MOVWF TIMER_COUNT
-    BSF PORTA,1
-    BCF PulseSelect, 0
-    MOVLW 0x7D
-    MOVWF T2CON
-    GOTO INTERRUPT_END
-   
-PulseSpaceTime:
-    MOVF PR2_PulseSpace,0
-    BSF STATUS,5
-    MOVWF PR2
-    BCF STATUS,5
-    MOVLW 0x02
-    MOVWF TIMER_COUNT
-    BCF PORTA,1
-    BSF PulseSelect, 0
-    MOVLW 0x7E
-    MOVWF T2CON
-    GOTO INTERRUPT_END
-   
+  BCF PIR1, 1
+  CLRF TMR2
+  ; Proper 16-bit decrement
+  MOVLW 0x01
+  SUBWF PHASE_COUNT_LOW, F
+  BTFSC STATUS, 0
+  GOTO NO_BORROW
+  DECF PHASE_COUNT_HIGH, F
+NO_BORROW:
+  ; Check if both bytes are zero
+  MOVF PHASE_COUNT_LOW, F
+  BTFSS STATUS, 2
+  GOTO INTERRUPT_END
+  MOVF PHASE_COUNT_HIGH, F
+  BTFSS STATUS, 2
+  GOTO INTERRUPT_END
+  ; Phase end - switch state
+  MOVF STATE, W
+  ADDWF PCL, F
+  GOTO STATE0_END
+  GOTO STATE1_END
+  GOTO STATE2_END
+  GOTO STATE3_END
+
+STATE0_END:
+  BCF PORTA, 0
+  BSF PORTA, 1
+  MOVF SERVO_COUNT2, W
+  MOVWF PHASE_COUNT_LOW
+  CLRF PHASE_COUNT_HIGH
+  MOVLW 0x01
+  MOVWF STATE
+  GOTO INTERRUPT_END
+
+STATE1_END:
+  BCF PORTA, 1
+  BSF PORTA, 2
+  MOVF SERVO_COUNT3, W
+  MOVWF PHASE_COUNT_LOW
+  CLRF PHASE_COUNT_HIGH
+  MOVLW 0x02
+  MOVWF STATE
+  GOTO INTERRUPT_END
+
+STATE2_END:
+  BCF PORTA, 2
+  MOVF SPACE_LOW, W
+  MOVWF PHASE_COUNT_LOW
+  MOVF SPACE_HIGH, W
+  MOVWF PHASE_COUNT_HIGH
+  MOVLW 0x03
+  MOVWF STATE
+  GOTO INTERRUPT_END
+
+STATE3_END:
+  BSF PORTA, 0
+  MOVF SERVO_COUNT1, W
+  MOVWF PHASE_COUNT_LOW
+  CLRF PHASE_COUNT_HIGH
+  CLRF STATE
+  GOTO INTERRUPT_END
+
+HANDLE_I2C:
+  BCF PIR1, 3
+  BSF STATUS, 5
+  BCF STATUS, 6
+  BTFSC SSPSTAT, 4
+  CLRF SSPSTAT
+  BTFSC SSPSTAT, 7
+  CLRF SSPSTAT
+  BCF STATUS, 5
+  BCF STATUS, 6
+  BTFSC SSPSTAT, 5
+  GOTO READ_DATA
+  MOVF SSPBUF, W
+  GOTO I2C_END
+READ_DATA:
+  MOVF SSPBUF, W
+  MOVWF RECEIVED_DATA
+  SUBLW 0x24
+  BTFSC STATUS, 2
+  GOTO I2C_END
+  MOVF RECEIVED_DATA, W
+  MOVWF PORTB
+  ANDLW 0x03
+  MOVWF SERVO_ID
+  SWAPF RECEIVED_DATA, W
+  ANDLW 0x0F
+  MOVWF POS
+  MOVF SERVO_ID, W
+  ADDWF PCL, F
+  GOTO UPDATE_SERVO1
+  GOTO UPDATE_SERVO2
+  GOTO UPDATE_SERVO3
+  GOTO I2C_END
+UPDATE_SERVO1:
+  MOVF POS, W
+  MOVWF SERVO_POS1
+  CALL LOOKUP_COUNT
+  MOVWF SERVO_COUNT1
+  CALL CALC_SPACE
+  GOTO I2C_END
+UPDATE_SERVO2:
+  MOVF POS, W
+  MOVWF SERVO_POS2
+  CALL LOOKUP_COUNT
+  MOVWF SERVO_COUNT2
+  CALL CALC_SPACE
+  GOTO I2C_END
+UPDATE_SERVO3:
+  MOVF POS, W
+  MOVWF SERVO_POS3
+  CALL LOOKUP_COUNT
+  MOVWF SERVO_COUNT3
+  CALL CALC_SPACE
+  GOTO I2C_END
+
+HANDLE_BCL:
+  BCF PIR2, 3
+  BCF SSPCON, 5
+  BSF SSPCON, 5
+  GOTO INTERRUPT_END
+
 INTERRUPT_END:
-    BCF PIR1,1 ;Clears TMR2 to PR2 Interrupt Flag
-    CLRF TMR2 ;Clears TMR2
-    SWAPF STATUS_TEMP, W
-    MOVWF STATUS
-    SWAPF W_TEMP, F
-    SWAPF W_TEMP, W
-    RETFIE ; Immediate return - no interrupt handling
+  SWAPF STATUS_TEMP, W
+  MOVWF STATUS
+  SWAPF W_TEMP, F
+  SWAPF W_TEMP, W
+  RETFIE
+
+CALC_SPACE:
+  MOVLW 0x1B ; Low byte of 1563 (0x061B)
+  MOVWF TEMP_LOW
+  MOVLW 0x06 ; High byte
+  MOVWF TEMP_HIGH
+  MOVF SERVO_COUNT1, W
+  SUBWF TEMP_LOW, F
+  BTFSC STATUS, 0
+  GOTO NO_BORROW1
+  DECF TEMP_HIGH, F
+NO_BORROW1:
+  MOVF SERVO_COUNT2, W
+  SUBWF TEMP_LOW, F
+  BTFSC STATUS, 0
+  GOTO NO_BORROW2
+  DECF TEMP_HIGH, F
+NO_BORROW2:
+  MOVF SERVO_COUNT3, W
+  SUBWF TEMP_LOW, F
+  BTFSC STATUS, 0
+  GOTO NO_BORROW3
+  DECF TEMP_HIGH, F
+NO_BORROW3:
+  MOVF TEMP_LOW, W
+  MOVWF SPACE_LOW
+  MOVF TEMP_HIGH, W
+  MOVWF SPACE_HIGH
+  RETURN
+
+LOOKUP_COUNT:
+  ADDWF PCL, F
+  RETLW 39  ; pos 0
+  RETLW 49  ; 1
+  RETLW 60  ; 2
+  RETLW 70  ; 3
+  RETLW 80  ; 4
+  RETLW 91  ; 5
+  RETLW 101 ; 6
+  RETLW 111 ; 7
+  RETLW 122 ; 8
+  RETLW 132 ; 9
+  RETLW 142 ; 10
+  RETLW 153 ; 11
+  RETLW 163 ; 12
+  RETLW 173 ; 13
+  RETLW 184 ; 14
+  RETLW 194 ; 15
+
+I2C_END:
+  GOTO INTERRUPT_END
+
 END
