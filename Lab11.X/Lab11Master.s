@@ -41,7 +41,7 @@ Setup:
 ; Bank 3
     BSF STATUS, 5
     BSF STATUS, 6
-    MOVLW 0x17 ; AN0, AN1, AN2, AN4 analog (bits 0,1,2,4)
+    MOVLW 0x17 ; AN0, AN1, AN2, AN4 analog (bits 0,1,2,4): Analog inputs
     MOVWF ANSEL
     CLRF ANSELH
     CLRF INTCON
@@ -59,13 +59,13 @@ Setup:
     MOVLW 0x18
     MOVWF TRISC
     MOVLW 0x42
-    MOVWF PIE1
+    MOVWF PIE1 ;(I2C associated)
     MOVLW 0x00
-    MOVWF PIE2
-    CLRF SSPCON2
-    CLRF SSPSTAT
+    MOVWF PIE2 ;(I2C associated)
+    CLRF SSPCON2 ;(I2C associated)
+    CLRF SSPSTAT ;(I2C associated)
     MOVLW 0x09
-    MOVWF SSPADD
+    MOVWF SSPADD ;(I2C associated)
     MOVLW 0x0F
     MOVWF TRISB
     MOVLW 0XC5
@@ -83,12 +83,14 @@ Setup:
     CLRF PIR1
     CLRF PIR2
     MOVLW 0x28
-    MOVWF SSPCON
+    MOVWF SSPCON ;(I2C associated)
     BANKSEL ADCON0
     MOVLW 0x01
     MOVWF ADCON0
     BANKSEL ADCON1
     BCF ADCON1, 7
+    
+    ;Indirect addressing (Present in bank0 I believe)
     BANKSEL CHANNEL_TABLE
     MOVLW 0x00 ; AN0 (new channel 0)
     MOVWF CHANNEL_TABLE
@@ -99,6 +101,7 @@ Setup:
     MOVLW 0x02 ; AN2 (channel 3)
     MOVWF CHANNEL_TABLE+3
     ; ID table for servo IDs (0: servo4 ID=00, 1: servo1 ID=11, 2: servo2 ID=01, 3: servo3 ID=10)
+    ; Different addresses due to slave bugs
     MOVLW 0x00
     MOVWF ID_TABLE
     MOVLW 0x03
@@ -109,6 +112,8 @@ Setup:
     MOVWF ID_TABLE+3
    
 ; Register/Variable setups
+    BCF STATUS, 5
+    BCF STATUS, 6
      COUNT1 EQU 0x20
      COUNT2 EQU 0x21
      COUNT3 EQU 0x22
@@ -125,8 +130,9 @@ Setup:
      ID_TABLE EQU 0x34
 ; Main Program Loop
 MAINLOOP:
-    MOVLW CHANNEL_TABLE
-    ADDWF CURRENT_INDEX, W
+    ;Handles the addressing of the data to be sent
+    MOVLW CHANNEL_TABLE ;Indirect addressing
+    ADDWF CURRENT_INDEX, W ;Moves through the addresses 1-4 sequentially Repeats
     MOVWF FSR
     MOVF INDF, W
     BANKSEL ADCON0
@@ -138,14 +144,15 @@ MAINLOOP:
     ANDLW 0xC3
     IORWF TEMP, W
     MOVWF ADCON0
+;Starts ADC conversion for associated address
 START_CONV:
     BSF ADCON0, 1
     BANKSEL PIR1
-    BTFSS PIR1, 6
+    BTFSS PIR1, 6 ;Waits for ADC conversion to finish
     GOTO $-1
     BCF PIR1, 6
     BANKSEL ADRESH
-    MOVF ADRESH, W
+    MOVF ADRESH, W ;Saves data to ADRESH then sends it
     MOVWF DATA_TO_SEND
    
     ; Embed ID from table
@@ -158,7 +165,7 @@ START_CONV:
     ANDLW 0xFC
     IORWF TEMP, W
     MOVWF DATA_TO_SEND
-
+;Small delay for processing and testing
 HIGH0:
     MOVLW 0X01
     MOVWF COUNT3
@@ -195,15 +202,15 @@ INNERLOOP1:
     GOTO OUTERLOOP1
     DECFSZ COUNT6
     GOTO FINALLOOP1
- 
     CALL Delay2
+    ;After the buffer the saved ADC data is sent through I2C
     CALL I2C_SEND
  
-    INCF CURRENT_INDEX, F
+    INCF CURRENT_INDEX, F ;Increments the address
     MOVF CURRENT_INDEX, W
-    SUBLW 0x03
+    SUBLW 0x03 ;Max of four unique addresses
     BTFSS STATUS, 0
-    CLRF CURRENT_INDEX
+    CLRF CURRENT_INDEX ;Resets the address after max reached
     GOTO MAINLOOP
  
 ; Delay Subroutines
@@ -228,6 +235,7 @@ LOOPB:
  
 ; Sends I2C
 I2C_SEND:
+    ;Polling to prevent COM errors
     BSF STATUS, 5
     BCF STATUS, 6
     BTFSC SSPSTAT, 2
@@ -235,7 +243,7 @@ I2C_SEND:
     BSF SSPCON2, 0
     BTFSC SSPCON2, 0
     GOTO $-1
-   
+   ;This sends the address of 20. The R/W bit should be taken into account
     BCF STATUS, 5
     BCF STATUS, 6
     MOVLW 0x40
@@ -243,12 +251,12 @@ I2C_SEND:
     BTFSS PIR1, 3
     GOTO $-1
     BCF PIR1, 3
-   
+   ;Check for errors
     BSF STATUS, 5
     BCF STATUS, 6
     BTFSC SSPCON2, 6
     GOTO ERROR1
-   
+   ;Buffer of 24. This byte is ignored to send other data
     BCF STATUS, 5
     BCF STATUS, 6
     MOVLW 0x24
@@ -256,12 +264,12 @@ I2C_SEND:
     BTFSS PIR1, 3
     GOTO $-1
     BCF PIR1, 3
-   
+   ;Error check again
     BSF STATUS, 5
     BCF STATUS, 6
     BTFSC SSPCON2, 6
     GOTO ERROR1
-   
+   ;Now the ADC data is sent with appropriate address
     BCF STATUS, 5
     BCF STATUS, 6
     MOVF DATA_TO_SEND, W
@@ -269,25 +277,27 @@ I2C_SEND:
     BTFSS PIR1, 3
     GOTO $-1
     BCF PIR1, 3
-   
+   ;Error check
     BSF STATUS, 5
     BCF STATUS, 6
     BTFSC SSPCON2, 6
     GOTO ERROR1
-   
+   ;Ensure COMMS are good to finish
     BSF SSPCON2, 2
     BTFSC SSPCON2, 2
     GOTO $-1
-   
+   ;Bank change
     BCF STATUS, 5
     BCF STATUS, 6
     RETURN
+    ;Errors handling
 ERROR1:
     BCF STATUS, 5
     BCF STATUS, 6
     BCF SSPCON, 5
     BSF SSPCON, 5
     RETURN
+    ;In case interrupt is triggered immediate RETFIE
 INTERRUPT:
     RETFIE
 END

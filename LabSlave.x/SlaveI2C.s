@@ -1,4 +1,4 @@
-;LAB 11 - Slave (Interrupt Version)
+;LAB 11 - Slave
 ;Jacob Horsley
 ;RCET 3375
 ;Fifth Semester
@@ -61,6 +61,7 @@ PSECT isrVect, class=CODE, delta=2
     GOTO INTERRUPT
 Start:
 Setup:
+;BANK 3
   BSF STATUS, 5
   BSF STATUS, 6
   MOVLW 0x00
@@ -80,17 +81,19 @@ Setup:
   CLRF PSTRCON
   MOVLW 0x18
   MOVWF TRISC
-  MOVLW 0x0B ; SSPIE=1, TMR2IE=1
+  MOVLW 0x0B ; SSPIE=1, TMR2IE=1 (I2C associated)
   MOVWF PIE1
-  MOVLW 0x08
+  MOVLW 0x08 ;(I2C associated)
   MOVWF PIE2
   CLRF SSPCON2
-  MOVLW 0x80
+  MOVLW 0x80 ;(I2C associated)
   MOVWF SSPSTAT
   MOVLW 0x40
   MOVWF SSPADD
   MOVLW 0x3F ; PR2 for small interval (64 ticks)
   MOVWF PR2
+  
+;BANK 0
   BCF STATUS, 5
   BCF STATUS, 6
   MOVLW 0x00
@@ -108,7 +111,7 @@ Setup:
   CLRF PORTA
   CLRF RECEIVED_DATA
   MOVLW 0x26
-  MOVWF SSPCON
+  MOVWF SSPCON ;(I2C associated)
   MOVLW 0xC0 ; GIE=1, PEIE=1
   MOVWF INTCON
   ; Initialize servo positions to 0
@@ -140,8 +143,8 @@ MAINLOOP:
   MOVF NEW_DATA, W
   MOVWF PORTB
   ANDLW 0x03
-  MOVWF SERVO_ID
-  SWAPF NEW_DATA, W
+  MOVWF SERVO_ID ;Determines which servo data goes where
+  SWAPF NEW_DATA, W ;Saves the new data
   ANDLW 0x0F
   MOVWF POS
   MOVF SERVO_ID, W
@@ -149,18 +152,17 @@ MAINLOOP:
   BTFSS STATUS, 0
   GOTO DONE_UPDATE
   MOVF SERVO_ID, W
+  
+;Lookup table for where the data goes (To output)
+SERVOTABLE:
   ADDWF PCL, F
-  
-  
-  ;GOTO UPDATE_SERVO1
-  ;GOTO UPDATE_SERVO3
-  ;GOTO UPDATE_SERVO1
-  GOTO DONE_UPDATE
-  GOTO UPDATE_SERVO1
-  
-  GOTO UPDATE_SERVO2
-  GOTO UPDATE_SERVO3
- ; GOTO DONE_UPDATE
+
+  GOTO DONE_UPDATE   ;Servo1 address isn't working correctly
+  GOTO UPDATE_SERVO1 ;Servo1 data sent to this address
+  GOTO UPDATE_SERVO2 ;Servo2 data goes to this address
+  GOTO UPDATE_SERVO3 ;Servo3 data goes to this address
+ 
+;Updates already existing servo data. Each section follows the same pattern
 UPDATE_SERVO1:
   MOVF POS, W
   SUBWF SERVO_POS1, W
@@ -172,6 +174,7 @@ UPDATE_SERVO1:
   MOVWF SERVO_COUNT1
   CALL CALC_SPACE
   GOTO DONE_UPDATE
+  
 UPDATE_SERVO2:
   MOVF POS, W
   SUBWF SERVO_POS2, W
@@ -183,6 +186,7 @@ UPDATE_SERVO2:
   MOVWF SERVO_COUNT2
   CALL CALC_SPACE
   GOTO DONE_UPDATE
+  
 UPDATE_SERVO3:
   MOVF POS, W
   SUBWF SERVO_POS3, W
@@ -194,18 +198,21 @@ UPDATE_SERVO3:
   MOVWF SERVO_COUNT3
   CALL CALC_SPACE
   GOTO DONE_UPDATE
+  ;Signals the end of the servo updating
 DONE_UPDATE:
   BSF INTCON, 7
   GOTO MAINLOOP
 
+;Timer2 interrupt that handles the turning off of each signal
 INTERRUPT:
+;Saves data in mainloop
   MOVWF W_TEMP
   SWAPF STATUS, W
   MOVWF STATUS_TEMP
   BTFSC PIR1, 1
   GOTO HANDLE_SERVO
   BTFSC PIR1, 3
-  GOTO HANDLE_I2C
+  GOTO HANDLE_I2C ;Signals this is an I2C interrupt
   BTFSC PIR2, 3
   GOTO HANDLE_BCL
   GOTO INTERRUPT_END
@@ -227,14 +234,16 @@ NO_BORROW:
   MOVF PHASE_COUNT_HIGH, F
   BTFSS STATUS, 2
   GOTO INTERRUPT_END
-  ; Phase end - switch state
+  
+  ; Phase end - switch state (Same pattern as in mainloop)
+PhaseEnd:
   MOVF STATE, W
   ADDWF PCL, F
   GOTO STATE0_END
   GOTO STATE1_END
   GOTO STATE2_END
   GOTO STATE3_END
-
+;Signals the end of the pulse width (Same pattern for each state)
 STATE0_END:
   BCF PORTA, 0
   BSF PORTA, 1
@@ -272,7 +281,7 @@ STATE3_END:
   CLRF PHASE_COUNT_HIGH
   CLRF STATE
   GOTO INTERRUPT_END
-
+;This takes care of all the I2C operation
 HANDLE_I2C:
   BCF PIR1, 3
   BSF STATUS, 5
@@ -290,17 +299,17 @@ HANDLE_I2C:
 READ_DATA:
   MOVF SSPBUF, W
   MOVWF NEW_DATA
-  SUBLW 0x24
+  SUBLW 0x24 ;Acts as a buffer. Fixes mystery bug
   BTFSS STATUS, 2
   BSF FLAGS, 0
   GOTO INTERRUPT_END
-
+;Bus collision handler
 HANDLE_BCL:
   BCF PIR2, 3
   BCF SSPCON, 5
   BSF SSPCON, 5
   GOTO INTERRUPT_END
-
+;End of either I2C operation or servo data
 INTERRUPT_END:
   SWAPF STATUS_TEMP, W
   MOVWF STATUS
@@ -308,6 +317,7 @@ INTERRUPT_END:
   SWAPF W_TEMP, W
   RETFIE
 
+;Calculates the Pulse Space
 CALC_SPACE:
   MOVLW 0x1B ; Low byte of 1563 (0x061B)
   MOVWF TEMP_LOW
@@ -318,6 +328,7 @@ CALC_SPACE:
   BTFSC STATUS, 0
   GOTO NO_BORROW1
   DECF TEMP_HIGH, F
+;These borrows help with the calculation stuff
 NO_BORROW1:
   MOVF SERVO_COUNT2, W
   SUBWF TEMP_LOW, F
@@ -336,7 +347,7 @@ NO_BORROW3:
   MOVF TEMP_HIGH, W
   MOVWF SPACE_HIGH
   RETURN
-
+;Calculation lookup table
 LOOKUP_COUNT:
   ADDWF PCL, F
   RETLW 39  ; pos 0
