@@ -3,7 +3,7 @@
 ;RCET 3375
 ;Fifth Semester
 ;I2C Communication (Slave - Interrupt Mode)
-;Git URL: https://github.com/horsjaco117/Assembly_Code
+;Git URL: https://github.com/horsjaco117/Lab-11-I2C-with-the-PIC16f883
     
 ;Device Setup
 ;--------------------------------------------------------------------------
